@@ -22,11 +22,11 @@ M.defaults = {
   -- regions; the history workbench intentionally does not.
   fold_unchanged = false,
 
-  -- Draw one transfer marker for each diff hunk on the history pane. When the
-  -- history pane is on the left it is right-aligned against the divider; after
-  -- swapping sides it becomes a sign on the inner edge and points left.
-  hunk_actions = true,
-  hunk_indicators = {
+  -- A real, focusable action column is overlaid on the divider. Its arrows are
+  -- positioned from the on-screen diff rows, including native diff filler rows.
+  action_column = {
+    enabled = true,
+    width = 3,
     right = "→",
     left = "←",
   },
@@ -48,6 +48,13 @@ M.defaults = {
 
     -- Pull the entire historical revision into CURRENT.
     apply_file = "P",
+
+    -- Focus the middle hunk-action column from HISTORY.
+    focus_actions = "a",
+
+    -- In HISTORY/ACTIONS, undo the last change made in CURRENT.
+    undo = "u",
+
     close = "q",
   },
 }
