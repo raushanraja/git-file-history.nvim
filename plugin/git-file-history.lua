@@ -38,6 +38,10 @@ vim.api.nvim_create_user_command("GitFileHistoryApplyFile", function()
   history.apply_file()
 end, { desc = "Restore the selected historical file revision into the current buffer" })
 
+vim.api.nvim_create_user_command("GitFileHistoryEdit", function()
+  history.focus_current()
+end, { desc = "Focus the current file for manual editing" })
+
 vim.api.nvim_create_user_command("GitFileHistoryUndo", function()
   history.undo()
 end, { desc = "Undo the last change in the current file" })

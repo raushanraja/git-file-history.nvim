@@ -74,6 +74,8 @@ HISTORY gets focus when the workbench opens, while CURRENT stays on the right.
 | `L` | Newer file revision |
 | `s` | Pick any revision |
 | `r` | Refresh history |
+| `<Tab>` | Next changed hunk |
+| `<S-Tab>` | Previous changed hunk |
 | `]c` | Next changed hunk (native diff key) |
 | `[c` | Previous changed hunk (native diff key) |
 | `p` | Pull the historical hunk under the cursor into CURRENT |
@@ -81,12 +83,14 @@ HISTORY gets focus when the workbench opens, while CURRENT stays on the right.
 | Visual `p` | Pull only the selected historical diff range |
 | `P` | Restore the complete historical revision into CURRENT |
 | `x` | Swap HISTORY/CURRENT sides |
+| `u` | Undo last change made in CURRENT |
+| `e` | Focus CURRENT for manual editing |
 | `q` | Close the workbench |
 
 A typical selective-restore loop is:
 
 ```text
-]c  → inspect hunk → p → ]c → inspect hunk → p
+Tab  → inspect hunk → p → Tab → inspect hunk → p
 ```
 
 The visible arrow is intentionally a **hunk action marker**: position the cursor on that changed block and press `p` or `<CR>` to pull only that historical change into the live file.
@@ -102,6 +106,8 @@ The visible arrow is intentionally a **hunk action marker**: position the cursor
 :GitFileHistorySwap
 :GitFileHistoryApplyHunk
 :GitFileHistoryApplyFile
+:GitFileHistoryEdit
+:GitFileHistoryUndo
 :GitFileHistoryClose
 ```
 
@@ -133,9 +139,13 @@ require("git_file_history").setup({
     select = "s",
     refresh = "r",
     swap = "x",
+    next_hunk = "<Tab>",
+    prev_hunk = "<S-Tab>",
     apply_hunk = "p",
     apply_hunk_alt = "<CR>",
     apply_file = "P",
+    undo = "u",
+    focus_current = "e",
     close = "q",
   },
 })

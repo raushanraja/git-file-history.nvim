@@ -27,6 +27,8 @@ COMMANDS                                        *git-file-history-commands*
 :GitFileHistorySwap         Swap CURRENT/HISTORY window positions.
 :GitFileHistoryApplyHunk    Pull HISTORY hunk at cursor into CURRENT.
 :GitFileHistoryApplyFile    Restore whole selected revision to CURRENT.
+:GitFileHistoryEdit         Focus CURRENT for manual editing.
+:GitFileHistoryUndo         Undo the last change in CURRENT.
 :GitFileHistoryClose        Close comparison and restore CURRENT options.
 
 ==============================================================================
@@ -40,11 +42,14 @@ H           older file revision
 L           newer file revision
 s           select revision
 r           refresh Git history
+<Tab>       next changed diff hunk
+<S-Tab>     previous changed diff hunk
 p           pull HISTORY diff hunk under cursor into CURRENT
 <CR>        same as p
 Visual p    pull selected HISTORY diff range into CURRENT
 P           restore complete selected HISTORY revision into CURRENT
 x           swap CURRENT/HISTORY sides
+e           focus CURRENT for manual editing
 q           close
 
 Native diff mappings remain available, especially:

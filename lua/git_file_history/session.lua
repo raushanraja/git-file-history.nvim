@@ -262,6 +262,14 @@ local function install_buffer_mappings(buf)
     require("git_file_history").swap()
   end, "Swap current/history sides")
 
+  map(maps.next_hunk, function()
+    vim.cmd("normal! ]c")
+  end, "Next changed diff hunk")
+
+  map(maps.prev_hunk, function()
+    vim.cmd("normal! [c")
+  end, "Previous changed diff hunk")
+
   map(maps.apply_hunk, function()
     require("git_file_history").apply_hunk()
   end, "Pull historical hunk into current file")
@@ -277,6 +285,10 @@ local function install_buffer_mappings(buf)
   map(maps.undo, function()
     require("git_file_history").undo()
   end, "Undo last change in current file")
+
+  map(maps.focus_current, function()
+    require("git_file_history").focus_current()
+  end, "Focus current file for editing")
 
   if maps.apply_hunk and maps.apply_hunk ~= "" then
     vim.keymap.set("x", maps.apply_hunk, function()
@@ -701,6 +713,18 @@ function M.apply_file()
   end
 
   update_diff(session)
+end
+
+function M.focus_current()
+  local session = current_session()
+  if not session then
+    notify("No active file-history session", vim.log.levels.WARN)
+    return
+  end
+
+  if vim.api.nvim_win_is_valid(session.current_win) then
+    vim.api.nvim_set_current_win(session.current_win)
+  end
 end
 
 function M.undo()

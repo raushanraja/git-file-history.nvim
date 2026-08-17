@@ -40,6 +40,10 @@ M.defaults = {
     refresh = "r",
     swap = "x",
 
+    -- Jump between changed hunks in HISTORY, like the native ]c / [c.
+    next_hunk = "<Tab>",
+    prev_hunk = "<S-Tab>",
+
     -- Pull the historical hunk under the cursor into CURRENT.
     apply_hunk = "p",
 
@@ -51,6 +55,9 @@ M.defaults = {
 
     -- In HISTORY, undo the last change made in CURRENT.
     undo = "u",
+
+    -- Move the cursor to the live CURRENT file for manual editing.
+    focus_current = "e",
 
     close = "q",
   },
