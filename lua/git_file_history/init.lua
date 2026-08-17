@@ -37,6 +37,18 @@ function M.swap()
   session.swap()
 end
 
+function M.apply_hunk()
+  session.apply_hunk()
+end
+
+function M.apply_selection()
+  session.apply_selection()
+end
+
+function M.apply_file()
+  session.apply_file()
+end
+
 function M._on_win_closed(winid)
   session.on_win_closed(winid)
 end

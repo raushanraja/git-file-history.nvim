@@ -52,7 +52,18 @@ end
 local function set_diff(win)
   vim.api.nvim_win_call(win, function()
     vim.cmd("diffthis")
+    -- Diff mode normally folds unchanged regions. This plugin is a full-file
+    -- history workbench, so both panes stay expanded at all times.
+    vim.wo.foldenable = false
   end)
+end
+
+local function keep_expanded(session)
+  for _, win in ipairs({ session.left_win, session.right_win }) do
+    if vim.api.nvim_win_is_valid(win) then
+      vim.wo[win].foldenable = false
+    end
+  end
 end
 
 local function update_diff(session)
@@ -63,6 +74,8 @@ local function update_diff(session)
   vim.api.nvim_win_call(session.left_win, function()
     vim.cmd("silent! diffupdate")
   end)
+
+  keep_expanded(session)
 end
 
 local function install_buffer_mappings(buf)
@@ -102,6 +115,25 @@ local function install_buffer_mappings(buf)
   map(maps.swap, function()
     require("git_file_history").swap()
   end, "Swap current/history sides")
+
+  map(maps.apply_hunk, function()
+    require("git_file_history").apply_hunk()
+  end, "Apply historical diff hunk to current file")
+
+  map(maps.apply_file, function()
+    require("git_file_history").apply_file()
+  end, "Restore entire historical revision into current file")
+
+  if maps.apply_hunk and maps.apply_hunk ~= "" then
+    vim.keymap.set("x", maps.apply_hunk, function()
+      require("git_file_history").apply_selection()
+    end, {
+      buffer = buf,
+      silent = true,
+      nowait = true,
+      desc = "Apply selected historical diff range to current file",
+    })
+  end
 
   map(maps.close, function()
     require("git_file_history").close()
@@ -349,6 +381,106 @@ function M.refresh()
   end
 
   load_index(session, index)
+end
+
+local function apply_history_range(session, start_line, end_line)
+  if not vim.api.nvim_win_is_valid(session.left_win)
+    or not vim.api.nvim_win_is_valid(session.right_win)
+    or not vim.api.nvim_buf_is_valid(session.left_buf)
+    or not vim.api.nvim_buf_is_valid(session.history_buf) then
+    notify("File-history windows are no longer valid", vim.log.levels.WARN)
+    return false
+  end
+
+  if not vim.bo[session.left_buf].modifiable then
+    notify("Current buffer is not modifiable", vim.log.levels.ERROR)
+    return false
+  end
+
+  local target = tostring(session.left_buf)
+  local command
+
+  if start_line and end_line then
+    start_line = math.max(0, start_line)
+    end_line = math.max(start_line, end_line)
+    command = string.format("silent %d,%ddiffput %s", start_line, end_line, target)
+  else
+    command = "silent diffput " .. target
+  end
+
+  local ok, err = pcall(vim.api.nvim_win_call, session.right_win, function()
+    vim.cmd(command)
+  end)
+
+  if not ok then
+    notify("Could not apply historical change: " .. tostring(err), vim.log.levels.ERROR)
+    return false
+  end
+
+  update_diff(session)
+  return true
+end
+
+function M.apply_hunk()
+  local session = current_session()
+  if not session then
+    notify("No active file-history session", vim.log.levels.WARN)
+    return
+  end
+
+  apply_history_range(session)
+end
+
+function M.apply_selection()
+  local session = current_session()
+  if not session then
+    notify("No active file-history session", vim.log.levels.WARN)
+    return
+  end
+
+  -- Called by the visual-mode mapping in the history buffer. `v` is the
+  -- opposite end of the active Visual selection and `.` is the cursor end.
+  local first = vim.fn.line("v")
+  local last = vim.fn.line(".")
+  if first > last then
+    first, last = last, first
+  end
+
+  apply_history_range(session, first, last)
+end
+
+function M.apply_file()
+  local session = current_session()
+  if not session then
+    notify("No active file-history session", vim.log.levels.WARN)
+    return
+  end
+
+  if not vim.api.nvim_win_is_valid(session.left_win)
+    or not vim.api.nvim_win_is_valid(session.right_win)
+    or not vim.api.nvim_buf_is_valid(session.left_buf) then
+    notify("File-history windows are no longer valid", vim.log.levels.WARN)
+    return
+  end
+
+  if not vim.bo[session.left_buf].modifiable then
+    notify("Current buffer is not modifiable", vim.log.levels.ERROR)
+    return
+  end
+
+  -- Neovim's diff help defines 0,$+1 as the complete diff range, including
+  -- deleted lines that do not have a normal buffer line number.
+  local target = tostring(session.left_buf)
+  local ok, err = pcall(vim.api.nvim_win_call, session.right_win, function()
+    vim.cmd("silent 0,$+1diffput " .. target)
+  end)
+
+  if not ok then
+    notify("Could not restore historical revision: " .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
+
+  update_diff(session)
 end
 
 function M.swap()

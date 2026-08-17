@@ -30,6 +30,14 @@ vim.api.nvim_create_user_command("GitFileHistorySwap", function()
   history.swap()
 end, { desc = "Swap current and history pane sides" })
 
+vim.api.nvim_create_user_command("GitFileHistoryApplyHunk", function()
+  history.apply_hunk()
+end, { desc = "Apply the historical diff hunk at the history cursor to the current buffer" })
+
+vim.api.nvim_create_user_command("GitFileHistoryApplyFile", function()
+  history.apply_file()
+end, { desc = "Restore the selected historical file revision into the current buffer" })
+
 vim.api.nvim_create_user_command("GitFileHistoryClose", function()
   history.close()
 end, { desc = "Close the file-history comparison" })

@@ -22,6 +22,8 @@ M.defaults = {
     select = "s",
     refresh = "r",
     swap = "x",
+    apply_hunk = "p",
+    apply_file = "P",
     close = "q",
   },
 }
