@@ -3,14 +3,18 @@
 ==============================================================================
 INTRODUCTION                                            *git-file-history*
 
-GitFileHistory keeps the real current buffer as the CURRENT pane and opens one
-read-only historical snapshot as the HISTORY pane. They start left/right by
-default, but their positions can be swapped without changing either buffer.
-The HISTORY pane can move older/newer through commits that touched that file.
+GitFileHistory opens a two-pane file-history workbench. By default HISTORY is
+on the left and the real editable CURRENT buffer is on the right:
 
-The plugin uses |diff-mode| and `git log --follow`, so unsaved current changes
-and file renames are handled naturally. Diff folding is disabled while the
-session is active, so the complete CURRENT and HISTORY files remain visible.
+        HISTORY  ->  CURRENT
+
+CURRENT is never replaced by a Git snapshot. HISTORY is read-only and can move
+older/newer through commits that touched the file. Unsaved CURRENT changes are
+included in the comparison.
+
+Both panes use |diff-mode| but unchanged regions remain fully expanded by
+default. Visible transfer arrows identify historical diff hunks that can be
+pulled into CURRENT.
 
 ==============================================================================
 COMMANDS                                        *git-file-history-commands*
@@ -21,14 +25,14 @@ COMMANDS                                        *git-file-history-commands*
 :GitFileHistorySelect       Select a revision through |vim.ui.select()|.
 :GitFileHistoryRefresh      Re-read the file history from Git.
 :GitFileHistorySwap         Swap CURRENT/HISTORY window positions.
-:GitFileHistoryApplyHunk    Apply the HISTORY hunk at cursor to CURRENT.
-:GitFileHistoryApplyFile    Restore the whole selected revision to CURRENT.
+:GitFileHistoryApplyHunk    Pull HISTORY hunk at cursor into CURRENT.
+:GitFileHistoryApplyFile    Restore whole selected revision to CURRENT.
 :GitFileHistoryClose        Close comparison and restore CURRENT options.
 
 ==============================================================================
 DEFAULT MAPPINGS                                *git-file-history-mappings*
 
-Mappings exist only in the historical scratch buffer.
+Mappings exist in the historical scratch buffer.
 
 [g          older file revision
 ]g          newer file revision
@@ -36,9 +40,10 @@ H           older file revision
 L           newer file revision
 s           select revision
 r           refresh Git history
-p           apply HISTORY diff hunk under cursor to CURRENT
-Visual p    apply selected HISTORY diff range to CURRENT
-P           restore complete selected HISTORY revision to CURRENT
+p           pull HISTORY diff hunk under cursor into CURRENT
+<CR>        same as p
+Visual p    pull selected HISTORY diff range into CURRENT
+P           restore complete selected HISTORY revision into CURRENT
 x           swap CURRENT/HISTORY sides
 q           close
 
@@ -46,7 +51,23 @@ Native diff mappings remain available, especially:
 ]c          next diff hunk
 [c          previous diff hunk
 
+==============================================================================
+HUNK ACTIONS                                *git-file-history-hunk-actions*
 
+When HISTORY is on the left, each diff hunk receives a right-aligned transfer
+marker pointing toward CURRENT:
+
+        HISTORY                 CURRENT
+        old block          ->   new block
+
+Put the HISTORY cursor in that hunk and press p or <CR>. Only that diff hunk is
+applied to the real CURRENT buffer.
+
+After :GitFileHistorySwap the direction reverses and HISTORY displays a left
+pointing marker toward CURRENT.
+
+The markers are recalculated after CURRENT changes and after HISTORY moves to
+a different revision.
 
 ==============================================================================
 RESTORING HISTORY                               *git-file-history-restore*
@@ -54,18 +75,40 @@ RESTORING HISTORY                               *git-file-history-restore*
 The HISTORY buffer is always read-only. Restore operations modify only the real
 CURRENT buffer and therefore participate in normal Neovim undo.
 
-p
-        Put the diff hunk under the HISTORY cursor into CURRENT.
+p / <CR>
+        Pull the diff hunk under the HISTORY cursor into CURRENT.
 
 Visual p
-        Put only the selected HISTORY diff range into CURRENT.
+        Pull only the selected HISTORY diff range into CURRENT.
 
 P
-        Put the complete selected historical file into CURRENT. Internally
+        Pull the complete selected historical file into CURRENT. Internally
         this uses the complete |:diffput| range, including deleted lines.
 
 After each restore the diff is recalculated and both panes remain expanded.
 Use |u| in CURRENT to undo a restore.
+
+==============================================================================
+CONFIGURATION                                  *git-file-history-config*
+
+Default layout:
+
+        current_side = "right"
+
+Set current_side = "left" to start with CURRENT on the left instead. The x
+mapping can swap either layout at runtime.
+
+Diff folding is disabled by default:
+
+        fold_unchanged = false
+
+Hunk transfer markers can be disabled with:
+
+        hunk_actions = false
+
+The default indicators are:
+
+        hunk_indicators = { right = "→", left = "←" }
 
 ==============================================================================
 HIGHLIGHTS                                    *git-file-history-highlights*
@@ -75,6 +118,7 @@ GitFileHistoryIndex       default link: Special
 GitFileHistoryHash        default link: Identifier
 GitFileHistoryMeta        default link: Comment
 GitFileHistoryAbsent      default link: WarningMsg
+GitFileHistoryAction      default link: DiffText
 
 No colors are hard-coded by the plugin.
 

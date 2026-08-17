@@ -1,112 +1,97 @@
 # git-file-history.nvim
 
-A focused Neovim 0.12+ Git history viewer for the **current file**.
+A focused Neovim 0.12+ file-history workbench: browse an older Git revision beside the **real current buffer**, then pull individual historical hunks back into the file you are editing.
 
-The layout is intentionally simple:
+By default it deliberately follows the familiar diff-editor direction:
 
 ```text
-┌──────────────────────────────┬──────────────────────────────┐
-│ CURRENT                      │ HISTORY                      │
-│                              │                              │
-│ Your real current buffer     │ Read-only Git snapshot      │
-│ stays the CURRENT pane.      │                              │
-│                              │ [g / H  older               │
-│ Unsaved edits are included   │ ]g / L  newer               │
-│ in the comparison.           │ s       select commit       │
-│                              │ r       refresh              │
-│                              │ p       apply diff hunk      │
-│                              │ P       restore whole file   │
-│                              │ x       swap sides           │
-│                              │ q       close                │
-└──────────────────────────────┴──────────────────────────────┘
+HISTORY (read-only)                         CURRENT (live/editable)
+┌──────────────────────────────────────┬──────────────────────────────────────┐
+│ old revision                         │ your real current buffer             │
+│                                      │                                      │
+│ changed historical block         →   │ changed current block                │
+│                                      │                                      │
+│ another historical hunk          →   │ another current hunk                 │
+│                                      │                                      │
+│ [g/H older      ]g/L newer            │ unsaved edits stay here              │
+│ p/<CR> pull hunk                      │ u undoes a pulled change              │
+│ P whole file     x swap               │                                      │
+└──────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-The current pane is never replaced. By default it starts on the left and history starts on the right. Press `x` (or use `:GitFileHistorySwap`) to exchange their positions; the real current buffer and selected historical revision remain exactly the same. Both panes use Neovim's native diff mode, but diff folding is disabled so the complete current and historical files are always visible.
+The files stay **fully expanded**. Neovim's native diff highlighting/filler rows are used, but its normal automatic folding of unchanged regions is disabled.
 
 ## Features
 
-- Current working buffer is always the real editable buffer.
-- Historical Git snapshot is always read-only.
-- Swap current/history between left and right without recreating either pane.
-- Move older/newer without opening more windows.
-- `git log --follow` traces history across file renames.
-- Current unsaved buffer changes are compared too.
-- Built-in Neovim diff highlighting with unchanged regions always expanded (no automatic diff folds).
-- Apply the historical hunk under the cursor to the live buffer with `p`.
-- Visually select a historical range and press `p` to apply only that range.
-- Restore the entire selected historical revision into the live buffer with `P`.
-- Restores edit the normal current buffer, so ordinary Neovim `u` can undo them.
-- Scroll-bound panes.
-- Commit hash/date/author/subject in the history winbar.
-- `vim.ui.select()` commit picker.
-- Read-only scratch buffer for history; your Git tree is never modified.
-- No hard-coded colors. Plugin highlights use standard Neovim highlight links and therefore inherit your colorscheme.
-- Uses native `vim.system`; no Lua Git dependency.
+- **CURRENT is on the right by default.**
+- CURRENT is always your actual editable Neovim buffer, including unsaved changes.
+- HISTORY is a read-only Git snapshot of the same file.
+- Visible `→` transfer markers identify diff hunks when HISTORY is on the left.
+- `p` or `<CR>` on a historical hunk pulls only that hunk into CURRENT.
+- Visual-select historical lines + `p` pulls only that selected diff range.
+- `P` restores the entire selected historical revision into CURRENT.
+- Normal `u` in CURRENT undoes a pulled/restored change.
+- `[g` / `]g` (or `H` / `L`) move only HISTORY backward/forward through file history.
+- `x` swaps HISTORY/CURRENT while preserving both buffers and the selected revision.
+- After swapping, the transfer direction automatically becomes `←` toward CURRENT.
+- `git log --follow` traces history across renames.
+- Full-file side-by-side diff: unchanged regions are never automatically folded.
+- Hunk markers recompute when CURRENT changes while the workbench is open.
+- Native Neovim `DiffAdd`, `DiffChange`, `DiffDelete`, `DiffText`, etc.
+- No hard-coded colors; custom plugin highlights link to standard highlight groups.
+- Native `vim.system`; no Git Lua dependency.
 
 ## Requirements
 
 - Neovim 0.12+
 - Git
 
-## Native `vim.pack`
-
-Once the plugin is in a Git repository:
+## Install with native `vim.pack`
 
 ```lua
 vim.pack.add({
-  "https://github.com/YOURNAME/git-file-history.nvim",
+  "https://github.com/raushanraja/git-file-history.nvim",
 })
 
 require("git_file_history").setup()
 ```
 
-For a local Git repository:
-
-```lua
-vim.pack.add({
-  {
-    src = "file:///absolute/path/to/git-file-history.nvim",
-    name = "git-file-history.nvim",
-  },
-})
-```
-
-## Usage
-
-Open history while your cursor is in a file:
+Then:
 
 ```vim
 :GitFileHistory
 ```
 
-The right pane starts at the newest commit that touched the file.
+## Default workflow
 
-### History-pane mappings
+HISTORY gets focus when the workbench opens, while CURRENT stays on the right.
 
 | Mapping | Action |
 |---|---|
-| `[g` | Older revision |
-| `]g` | Newer revision |
-| `H` | Older revision |
-| `L` | Newer revision |
-| `s` | Select a commit |
+| `[g` | Older file revision |
+| `]g` | Newer file revision |
+| `H` | Older file revision |
+| `L` | Newer file revision |
+| `s` | Pick any revision |
 | `r` | Refresh history |
-| `p` | Apply historical diff hunk under cursor to current buffer |
-| Visual `p` | Apply selected historical diff range to current buffer |
-| `P` | Restore the complete selected historical revision into current buffer |
-| `x` | Swap current/history sides |
-| `q` | Close history |
+| `]c` | Next changed hunk (native diff key) |
+| `[c` | Previous changed hunk (native diff key) |
+| `p` | Pull the historical hunk under the cursor into CURRENT |
+| `<CR>` | Same as `p` |
+| Visual `p` | Pull only the selected historical diff range |
+| `P` | Restore the complete historical revision into CURRENT |
+| `x` | Swap HISTORY/CURRENT sides |
+| `q` | Close the workbench |
 
-Because the panes are real Neovim diff windows, the standard diff-navigation keys also work:
+A typical selective-restore loop is:
 
-| Mapping | Action |
-|---|---|
-| `]c` | Next changed hunk |
-| `[c` | Previous changed hunk |
+```text
+]c  → inspect hunk → p → ]c → inspect hunk → p
+```
 
-A typical restore loop is therefore `]c` → inspect → `p` → `]c`.
+The visible arrow is intentionally a **hunk action marker**: position the cursor on that changed block and press `p` or `<CR>` to pull only that historical change into the live file.
 
-### Commands
+## Commands
 
 ```text
 :GitFileHistory
@@ -120,31 +105,25 @@ A typical restore loop is therefore `]c` → inspect → `p` → `]c`.
 :GitFileHistoryClose
 ```
 
-
-## Restore workflow
-
-The history buffer is a read-only source. Applying history never edits Git and never changes the historical snapshot itself.
-
-```text
-CURRENT (live buffer)                 HISTORY (selected commit)
-───────────────────────────────       ───────────────────────────────
-new implementation                    old implementation
-        ▲                                      │
-        └──────────── p: current hunk ──────────┘
-        └──── Visual p: selected range ─────────┘
-        └──────────── P: whole file ────────────┘
-```
-
-After an apply, Neovim recomputes the diff immediately and keeps both files fully expanded. The live buffer becomes modified normally; use `u` in the current buffer if you want to undo the restore.
-
 ## Configuration
 
 ```lua
 require("git_file_history").setup({
   start = "latest",
   follow = true,
+
+  -- "right" is the default: HISTORY -> CURRENT.
+  current_side = "right",
+
   winbar = true,
   scrollbind = true,
+  fold_unchanged = false,
+
+  hunk_actions = true,
+  hunk_indicators = {
+    right = "→",
+    left = "←",
+  },
 
   mappings = {
     older = "[g",
@@ -155,23 +134,38 @@ require("git_file_history").setup({
     refresh = "r",
     swap = "x",
     apply_hunk = "p",
+    apply_hunk_alt = "<CR>",
     apply_file = "P",
     close = "q",
   },
 })
 ```
 
-You can also start on a specific history index:
+If you prefer CURRENT on the left:
 
 ```lua
 require("git_file_history").setup({
-  start = 2, -- second-newest revision
+  current_side = "left",
 })
 ```
 
+You can still press `x` at any time to swap temporarily.
+
+## How hunk transfer works
+
+The plugin does not copy arbitrary line numbers between files. It keeps both panes in native Neovim diff mode and performs a semantic:
+
+```text
+HISTORY hunk  ────────→  CURRENT
+```
+
+using `:diffput` / `:diffget` against the actual CURRENT buffer. This means insertions, deletions, and replacements are handled as diff changes rather than naive text copies.
+
+The current buffer becomes normally modified after a transfer, so saving and undoing work exactly as they do during ordinary editing.
+
 ## Colors / QuietDark
 
-The plugin deliberately defines no fixed colors. Its custom groups default-link to standard groups:
+There are no fixed RGB values in the plugin. Custom groups default-link to normal Neovim semantics:
 
 ```text
 GitFileHistoryTitle   -> Title
@@ -179,15 +173,14 @@ GitFileHistoryIndex   -> Special
 GitFileHistoryHash    -> Identifier
 GitFileHistoryMeta    -> Comment
 GitFileHistoryAbsent  -> WarningMsg
+GitFileHistoryAction  -> DiffText
 ```
 
-A colorscheme can override those groups directly. Diff contents use Neovim's normal `DiffAdd`, `DiffChange`, `DiffDelete`, `DiffText`, etc., so QuietDark already controls the important comparison colors.
+The actual comparison continues to use `DiffAdd`, `DiffChange`, `DiffDelete`, `DiffText`, and related groups, so QuietDark automatically owns the visual appearance.
 
-## Notes
+## Rename history
 
-The right side represents the selected commit exactly. If the file did not exist at a selected commit (for example a deletion commit), the snapshot is represented as an empty file and the winbar shows `[file absent]`.
-
-Binary files are intentionally rejected.
+The history query uses `git log --follow --name-only`. When a file was renamed, HISTORY switches to the pathname that existed at the selected commit instead of stopping at the rename.
 
 ## Health check
 

@@ -1,5 +1,7 @@
 local M = {}
 
+local hunk_ns = vim.api.nvim_create_namespace("git_file_history_hunk_actions")
+
 local function escape_statusline(text)
   return tostring(text or ""):gsub("%%", "%%%%")
 end
@@ -11,6 +13,10 @@ function M.define_highlights()
     GitFileHistoryHash = "Identifier",
     GitFileHistoryMeta = "Comment",
     GitFileHistoryAbsent = "WarningMsg",
+
+    -- No colors are hard-coded. The active colorscheme owns the visual language.
+    -- QuietDark, for example, already styles DiffText as a strong diff accent.
+    GitFileHistoryAction = "DiffText",
   }
 
   for group, target in pairs(links) do
@@ -18,7 +24,7 @@ function M.define_highlights()
   end
 end
 
-function M.history_buffer(left_buf, relpath)
+function M.history_buffer(current_buf, relpath)
   local buf = vim.api.nvim_create_buf(false, true)
 
   vim.bo[buf].buftype = "nofile"
@@ -29,7 +35,7 @@ function M.history_buffer(left_buf, relpath)
   vim.bo[buf].modifiable = false
   vim.bo[buf].readonly = true
 
-  local ft = vim.bo[left_buf].filetype
+  local ft = vim.bo[current_buf].filetype
   if ft ~= "" then
     vim.bo[buf].filetype = ft
   end
@@ -41,9 +47,7 @@ end
 function M.set_content(buf, content, absent)
   local lines
 
-  if absent then
-    lines = {}
-  elseif content == "" then
+  if absent or content == "" then
     lines = {}
   else
     lines = vim.split(content, "\n", { plain = true })
@@ -81,8 +85,14 @@ function M.set_winbar(win, entry, index, total, absent)
   vim.wo[win].winbar = table.concat(parts)
 end
 
-function M.open_right(buf)
-  vim.cmd("rightbelow vsplit")
+function M.open_history(buf, current_side)
+  if current_side == "right" then
+    -- Keep the original/live window on the right and create HISTORY on the left.
+    vim.cmd("leftabove vsplit")
+  else
+    vim.cmd("rightbelow vsplit")
+  end
+
   local win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(win, buf)
   return win
@@ -94,6 +104,46 @@ function M.apply_history_window_options(win)
   vim.wo[win].signcolumn = "yes"
   vim.wo[win].wrap = false
   vim.wo[win].winfixwidth = false
+end
+
+function M.clear_hunk_actions(buf)
+  if vim.api.nvim_buf_is_valid(buf) then
+    vim.api.nvim_buf_clear_namespace(buf, hunk_ns, 0, -1)
+  end
+end
+
+--- Render transfer markers on HISTORY.
+---
+--- HISTORY left  : marker is right-aligned so it sits visually next to CURRENT.
+--- HISTORY right : marker is a sign on the left edge and points back to CURRENT.
+function M.render_hunk_actions(buf, hunks, history_side, indicators)
+  M.clear_hunk_actions(buf)
+
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+
+  local line_count = math.max(vim.api.nvim_buf_line_count(buf), 1)
+  local indicator = history_side == "left" and indicators.right or indicators.left
+
+  for i, hunk in ipairs(hunks) do
+    local line = math.max(1, math.min(hunk.marker_line, line_count))
+    local opts = {
+      id = 10000 + i,
+      priority = 220,
+    }
+
+    if history_side == "left" then
+      opts.hl_mode = "combine"
+      opts.virt_text = { { " " .. indicator .. " ", "GitFileHistoryAction" } }
+      opts.virt_text_pos = "right_align"
+    else
+      opts.sign_text = indicator
+      opts.sign_hl_group = "GitFileHistoryAction"
+    end
+
+    pcall(vim.api.nvim_buf_set_extmark, buf, hunk_ns, line - 1, 0, opts)
+  end
 end
 
 return M

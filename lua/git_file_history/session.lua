@@ -20,6 +20,10 @@ local function tabkey(tab)
   return tostring(tab)
 end
 
+local function opposite(side)
+  return side == "left" and "right" or "left"
+end
+
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "git-file-history.nvim" })
 end
@@ -52,30 +56,172 @@ end
 local function set_diff(win)
   vim.api.nvim_win_call(win, function()
     vim.cmd("diffthis")
-    -- Diff mode normally folds unchanged regions. This plugin is a full-file
-    -- history workbench, so both panes stay expanded at all times.
-    vim.wo.foldenable = false
+    if config.options.fold_unchanged == false then
+      -- Keep the complete file visible. Diff highlighting and filler lines stay
+      -- active; only the automatic folding of unchanged regions is disabled.
+      vim.wo.foldenable = false
+    end
   end)
 end
 
 local function keep_expanded(session)
-  for _, win in ipairs({ session.left_win, session.right_win }) do
+  if config.options.fold_unchanged ~= false then
+    return
+  end
+
+  for _, win in ipairs({ session.current_win, session.history_win }) do
     if vim.api.nvim_win_is_valid(win) then
       vim.wo[win].foldenable = false
     end
   end
 end
 
-local function update_diff(session)
-  if not vim.api.nvim_win_is_valid(session.left_win) then
+local function buffer_text(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return ""
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local text = table.concat(lines, "\n")
+
+  if vim.bo[buf].endofline then
+    text = text .. "\n"
+  end
+
+  return text
+end
+
+local function diff_index_options()
+  -- Keep our visible action markers as close as possible to Neovim's actual
+  -- diff hunks by mirroring the relevant parts of 'diffopt'.
+  local items = {}
+  for item in (vim.o.diffopt or ""):gmatch("[^,]+") do
+    items[item] = true
+  end
+
+  local algorithm = "myers"
+  local linematch
+  for item in pairs(items) do
+    algorithm = item:match("^algorithm:(.+)$") or algorithm
+    linematch = tonumber(item:match("^linematch:(%d+)$")) or linematch
+  end
+
+  local opts = {
+    result_type = "indices",
+    algorithm = algorithm,
+    indent_heuristic = items["indent-heuristic"] == true,
+    ignore_blank_lines = items.iblank == true,
+    ignore_whitespace = items.iwhiteall == true,
+    ignore_whitespace_change = items.iwhite == true,
+    ignore_whitespace_change_at_eol = items.iwhiteeol == true,
+  }
+
+  if linematch then
+    opts.linematch = linematch
+  end
+
+  return opts
+end
+
+local function compute_hunks(session)
+  if not vim.api.nvim_buf_is_valid(session.history_buf)
+    or not vim.api.nvim_buf_is_valid(session.current_buf) then
+    return {}
+  end
+
+  local history_text = buffer_text(session.history_buf)
+  local current_text = buffer_text(session.current_buf)
+
+  local ok, raw = pcall(vim.text.diff, history_text, current_text, diff_index_options())
+
+  if not ok or type(raw) ~= "table" then
+    return {}
+  end
+
+  local history_line_count = math.max(vim.api.nvim_buf_line_count(session.history_buf), 1)
+  local hunks = {}
+
+  for _, values in ipairs(raw) do
+    local history_start = values[1]
+    local history_count = values[2]
+    local current_start = values[3]
+    local current_count = values[4]
+
+    -- A hunk may represent lines that exist only in CURRENT, so HISTORY has no
+    -- real buffer line for that side of the diff. In that case Neovim displays
+    -- filler rows. Put our marker on the first real line immediately after the
+    -- filler; :diffput intentionally treats a diff just above the cursor as the
+    -- active hunk, matching :help :diffget / :diffput.
+    local marker_line = history_start
+    if history_count == 0 then
+      marker_line = math.max(1, history_start)
+    end
+    marker_line = math.max(1, math.min(marker_line, history_line_count))
+
+    hunks[#hunks + 1] = {
+      history_start = history_start,
+      history_count = history_count,
+      current_start = current_start,
+      current_count = current_count,
+      marker_line = marker_line,
+    }
+  end
+
+  return hunks
+end
+
+local function refresh_hunk_actions(session)
+  if not config.options.hunk_actions then
+    ui.clear_hunk_actions(session.history_buf)
+    session.hunks = {}
+    session.hunk_by_line = {}
     return
   end
 
-  vim.api.nvim_win_call(session.left_win, function()
+  local hunks = compute_hunks(session)
+  session.hunks = hunks
+  session.hunk_by_line = {}
+
+  for i, hunk in ipairs(hunks) do
+    session.hunk_by_line[hunk.marker_line] = session.hunk_by_line[hunk.marker_line] or i
+  end
+
+  ui.render_hunk_actions(
+    session.history_buf,
+    hunks,
+    session.history_side,
+    config.options.hunk_indicators
+  )
+end
+
+local function update_diff(session)
+  if not vim.api.nvim_win_is_valid(session.current_win) then
+    return
+  end
+
+  vim.api.nvim_win_call(session.current_win, function()
     vim.cmd("silent! diffupdate")
   end)
 
   keep_expanded(session)
+  refresh_hunk_actions(session)
+end
+
+local function schedule_diff_refresh(session)
+  session.diff_generation = (session.diff_generation or 0) + 1
+  local generation = session.diff_generation
+
+  vim.defer_fn(function()
+    if session.closing or generation ~= session.diff_generation then
+      return
+    end
+
+    if sessions[tabkey(session.tab)] ~= session then
+      return
+    end
+
+    update_diff(session)
+  end, 80)
 end
 
 local function install_buffer_mappings(buf)
@@ -118,7 +264,11 @@ local function install_buffer_mappings(buf)
 
   map(maps.apply_hunk, function()
     require("git_file_history").apply_hunk()
-  end, "Apply historical diff hunk to current file")
+  end, "Pull historical hunk into current file")
+
+  map(maps.apply_hunk_alt, function()
+    require("git_file_history").apply_hunk()
+  end, "Pull historical hunk into current file")
 
   map(maps.apply_file, function()
     require("git_file_history").apply_file()
@@ -131,7 +281,7 @@ local function install_buffer_mappings(buf)
       buffer = buf,
       silent = true,
       nowait = true,
-      desc = "Apply selected historical diff range to current file",
+      desc = "Pull selected historical diff range into current file",
     })
   end
 
@@ -164,39 +314,63 @@ local function load_index(session, index)
   vim.b[session.history_buf].git_file_history_path = entry.path
   vim.b[session.history_buf].git_file_history_index = index
 
-  if config.options.winbar and vim.api.nvim_win_is_valid(session.right_win) then
-    ui.set_winbar(session.right_win, entry, index, #session.entries, absent)
+  if config.options.winbar and vim.api.nvim_win_is_valid(session.history_win) then
+    ui.set_winbar(session.history_win, entry, index, #session.entries, absent)
   end
 
   update_diff(session)
 
-  if vim.api.nvim_win_is_valid(session.right_win) then
-    local left_cursor = { 1, 0 }
-    if vim.api.nvim_win_is_valid(session.left_win) then
-      left_cursor = vim.api.nvim_win_get_cursor(session.left_win)
+  if vim.api.nvim_win_is_valid(session.history_win) then
+    local current_cursor = { 1, 0 }
+    if vim.api.nvim_win_is_valid(session.current_win) then
+      current_cursor = vim.api.nvim_win_get_cursor(session.current_win)
     end
 
     local line_count = math.max(vim.api.nvim_buf_line_count(session.history_buf), 1)
-    left_cursor[1] = math.min(left_cursor[1], line_count)
-    pcall(vim.api.nvim_win_set_cursor, session.right_win, left_cursor)
+    current_cursor[1] = math.min(current_cursor[1], line_count)
+    pcall(vim.api.nvim_win_set_cursor, session.history_win, current_cursor)
   end
 
   return true
 end
 
+local function install_session_autocmds(session)
+  local group = vim.api.nvim_create_augroup(
+    "GitFileHistorySession" .. tostring(session.tab),
+    { clear = true }
+  )
+  session.augroup = group
+
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "TextChangedP" }, {
+    group = group,
+    buffer = session.current_buf,
+    callback = function()
+      schedule_diff_refresh(session)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    buffer = session.current_buf,
+    callback = function()
+      schedule_diff_refresh(session)
+    end,
+  })
+end
+
 function M.open()
   local existing = current_session()
   if existing then
-    if vim.api.nvim_win_is_valid(existing.right_win) then
-      vim.api.nvim_set_current_win(existing.right_win)
+    if vim.api.nvim_win_is_valid(existing.history_win) then
+      vim.api.nvim_set_current_win(existing.history_win)
       return
     end
     M.close()
   end
 
-  local left_win = vim.api.nvim_get_current_win()
-  local left_buf = vim.api.nvim_get_current_buf()
-  local path = vim.api.nvim_buf_get_name(left_buf)
+  local current_win = vim.api.nvim_get_current_win()
+  local current_buf = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(current_buf)
 
   if path == "" then
     notify("Current buffer has no file path", vim.log.levels.ERROR)
@@ -224,43 +398,56 @@ function M.open()
     return
   end
 
-  local history_buf = ui.history_buffer(left_buf, relpath)
-  local right_win = ui.open_right(history_buf)
-  ui.apply_history_window_options(right_win)
+  local current_side = config.options.current_side
+  local history_side = opposite(current_side)
+
+  local history_buf = ui.history_buffer(current_buf, relpath)
+  local history_win = ui.open_history(history_buf, current_side)
+  ui.apply_history_window_options(history_win)
   install_buffer_mappings(history_buf)
 
   local tab = vim.api.nvim_get_current_tabpage()
   local session = {
     tab = tab,
-    left_win = left_win,
-    left_buf = left_buf,
-    right_win = right_win,
+
+    current_win = current_win,
+    current_buf = current_buf,
+    current_side = current_side,
+
+    history_win = history_win,
     history_buf = history_buf,
+    history_side = history_side,
+
     root = root,
     relpath = relpath,
     entries = entries,
     index = 1,
-    left_options = save_window_options(left_win),
-    swapped = false,
+    current_options = save_window_options(current_win),
     closing = false,
+    hunks = {},
+    hunk_by_line = {},
   }
 
   sessions[tabkey(tab)] = session
 
-  set_diff(left_win)
-  set_diff(right_win)
+  set_diff(current_win)
+  set_diff(history_win)
 
   if config.options.scrollbind then
-    vim.wo[left_win].scrollbind = true
-    vim.wo[right_win].scrollbind = true
+    vim.wo[current_win].scrollbind = true
+    vim.wo[history_win].scrollbind = true
   end
+
+  install_session_autocmds(session)
 
   local start = config.options.start
   local start_index = type(start) == "number" and start or 1
   start_index = math.max(1, math.min(start_index, #entries))
   load_index(session, start_index)
 
-  vim.api.nvim_set_current_win(right_win)
+  -- History gets focus so revision navigation and transfer mappings work
+  -- immediately, while CURRENT remains visually on the configured side.
+  vim.api.nvim_set_current_win(history_win)
 end
 
 function M.close(tab, from_autocmd)
@@ -279,14 +466,20 @@ function M.close(tab, from_autocmd)
   session.closing = true
   sessions[tabkey(session.tab)] = nil
 
-  restore_window_options(session.left_win, session.left_options)
+  ui.clear_hunk_actions(session.history_buf)
 
-  if not from_autocmd and vim.api.nvim_win_is_valid(session.right_win) then
-    pcall(vim.api.nvim_win_close, session.right_win, true)
+  if session.augroup then
+    pcall(vim.api.nvim_del_augroup_by_id, session.augroup)
   end
 
-  if vim.api.nvim_win_is_valid(session.left_win) then
-    pcall(vim.api.nvim_set_current_win, session.left_win)
+  restore_window_options(session.current_win, session.current_options)
+
+  if not from_autocmd and vim.api.nvim_win_is_valid(session.history_win) then
+    pcall(vim.api.nvim_win_close, session.history_win, true)
+  end
+
+  if vim.api.nvim_win_is_valid(session.current_win) then
+    pcall(vim.api.nvim_set_current_win, session.current_win)
   end
 end
 
@@ -384,20 +577,20 @@ function M.refresh()
 end
 
 local function apply_history_range(session, start_line, end_line)
-  if not vim.api.nvim_win_is_valid(session.left_win)
-    or not vim.api.nvim_win_is_valid(session.right_win)
-    or not vim.api.nvim_buf_is_valid(session.left_buf)
+  if not vim.api.nvim_win_is_valid(session.current_win)
+    or not vim.api.nvim_win_is_valid(session.history_win)
+    or not vim.api.nvim_buf_is_valid(session.current_buf)
     or not vim.api.nvim_buf_is_valid(session.history_buf) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return false
   end
 
-  if not vim.bo[session.left_buf].modifiable then
+  if not vim.bo[session.current_buf].modifiable then
     notify("Current buffer is not modifiable", vim.log.levels.ERROR)
     return false
   end
 
-  local target = tostring(session.left_buf)
+  local target = tostring(session.current_buf)
   local command
 
   if start_line and end_line then
@@ -408,12 +601,12 @@ local function apply_history_range(session, start_line, end_line)
     command = "silent diffput " .. target
   end
 
-  local ok, err = pcall(vim.api.nvim_win_call, session.right_win, function()
+  local ok, err = pcall(vim.api.nvim_win_call, session.history_win, function()
     vim.cmd(command)
   end)
 
   if not ok then
-    notify("Could not apply historical change: " .. tostring(err), vim.log.levels.ERROR)
+    notify("Could not pull historical change: " .. tostring(err), vim.log.levels.ERROR)
     return false
   end
 
@@ -428,6 +621,29 @@ function M.apply_hunk()
     return
   end
 
+  -- The action is always semantically HISTORY -> CURRENT. If invoked while the
+  -- cursor is in CURRENT, use :diffget; otherwise use :diffput from HISTORY.
+  local focused = vim.api.nvim_get_current_win()
+
+  if focused == session.current_win then
+    if not vim.bo[session.current_buf].modifiable then
+      notify("Current buffer is not modifiable", vim.log.levels.ERROR)
+      return
+    end
+
+    local ok, err = pcall(vim.api.nvim_win_call, session.current_win, function()
+      vim.cmd("silent diffget " .. tostring(session.history_buf))
+    end)
+
+    if not ok then
+      notify("Could not pull historical change: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+
+    update_diff(session)
+    return
+  end
+
   apply_history_range(session)
 end
 
@@ -438,8 +654,8 @@ function M.apply_selection()
     return
   end
 
-  -- Called by the visual-mode mapping in the history buffer. `v` is the
-  -- opposite end of the active Visual selection and `.` is the cursor end.
+  -- Called by the visual-mode mapping in HISTORY. `v` is the opposite end of
+  -- the active selection and `.` is the cursor end.
   local first = vim.fn.line("v")
   local last = vim.fn.line(".")
   if first > last then
@@ -456,22 +672,22 @@ function M.apply_file()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.left_win)
-    or not vim.api.nvim_win_is_valid(session.right_win)
-    or not vim.api.nvim_buf_is_valid(session.left_buf) then
+  if not vim.api.nvim_win_is_valid(session.current_win)
+    or not vim.api.nvim_win_is_valid(session.history_win)
+    or not vim.api.nvim_buf_is_valid(session.current_buf) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return
   end
 
-  if not vim.bo[session.left_buf].modifiable then
+  if not vim.bo[session.current_buf].modifiable then
     notify("Current buffer is not modifiable", vim.log.levels.ERROR)
     return
   end
 
-  -- Neovim's diff help defines 0,$+1 as the complete diff range, including
-  -- deleted lines that do not have a normal buffer line number.
-  local target = tostring(session.left_buf)
-  local ok, err = pcall(vim.api.nvim_win_call, session.right_win, function()
+  -- 0,$+1 includes diff filler rows, so this also handles lines that exist on
+  -- only one side of the comparison.
+  local target = tostring(session.current_buf)
+  local ok, err = pcall(vim.api.nvim_win_call, session.history_win, function()
     vim.cmd("silent 0,$+1diffput " .. target)
   end)
 
@@ -490,21 +706,18 @@ function M.swap()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.left_win)
-    or not vim.api.nvim_win_is_valid(session.right_win) then
+  if not vim.api.nvim_win_is_valid(session.current_win)
+    or not vim.api.nvim_win_is_valid(session.history_win) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return
   end
 
-  -- Preserve which pane the user is currently focused in. nvim_win_set_config()
-  -- moves the existing split window itself, so buffers and window-local options
-  -- stay attached to their semantic panes.
   local focused = vim.api.nvim_get_current_win()
-  local target_side = session.swapped and "right" or "left"
+  local target_side = session.history_side == "left" and "right" or "left"
 
-  local ok, err = pcall(vim.api.nvim_win_set_config, session.right_win, {
+  local ok, err = pcall(vim.api.nvim_win_set_config, session.history_win, {
     split = target_side,
-    win = session.left_win,
+    win = session.current_win,
   })
 
   if not ok then
@@ -512,9 +725,10 @@ function M.swap()
     return
   end
 
-  session.swapped = not session.swapped
+  session.history_side = target_side
+  session.current_side = opposite(target_side)
 
-  if focused == session.left_win or focused == session.right_win then
+  if focused == session.current_win or focused == session.history_win then
     pcall(vim.api.nvim_set_current_win, focused)
   end
 
@@ -524,12 +738,12 @@ end
 function M.on_win_closed(winid)
   for _, session in pairs(sessions) do
     if not session.closing then
-      if session.right_win == winid then
-        -- The history pane is already gone; only restore the current pane.
+      if session.history_win == winid then
+        -- HISTORY is already gone; only restore CURRENT.
         M.close(session.tab, true)
         return
-      elseif session.left_win == winid then
-        -- The current pane disappeared, so tear down the still-open history pane.
+      elseif session.current_win == winid then
+        -- CURRENT disappeared, so tear down the still-open history pane.
         M.close(session.tab, false)
         return
       end
