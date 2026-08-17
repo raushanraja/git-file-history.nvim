@@ -13,9 +13,9 @@ HISTORY (read-only)                         CURRENT (live/editable)
 │                                      │                                      │
 │ another historical hunk          →   │ another current hunk                 │
 │                                      │                                      │
-│ [g/H older      ]g/L newer            │ unsaved edits stay here              │
-│ p/<CR> pull hunk                      │ u undoes a pulled change              │
-│ P whole file     x swap               │                                      │
+│ [g/H older      ]g/L newer           │ unsaved edits stay here              │
+│ p/<CR> pull hunk                     │ u undoes a pulled change              │
+│ P whole file     x swap              │                                      │
 └──────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
