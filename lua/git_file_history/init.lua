@@ -19,12 +19,6 @@ function M.swap() session.swap() end
 function M.apply_hunk() session.apply_hunk() end
 function M.apply_selection() session.apply_selection() end
 function M.apply_file() session.apply_file() end
-function M.apply_action() session.apply_action() end
-function M.next_action() session.next_action() end
-function M.prev_action() session.prev_action() end
-function M.focus_actions() session.focus_actions() end
-function M.focus_left() session.focus_left() end
-function M.focus_right() session.focus_right() end
 function M.undo() session.undo() end
 
 function M._on_win_closed(winid)
