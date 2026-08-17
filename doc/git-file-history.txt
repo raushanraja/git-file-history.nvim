@@ -1,0 +1,51 @@
+*git-file-history.nvim*                 Current-file Git history diff for Neovim
+
+==============================================================================
+INTRODUCTION                                            *git-file-history*
+
+GitFileHistory keeps the real current buffer as the CURRENT pane and opens one
+read-only historical snapshot as the HISTORY pane. They start left/right by
+default, but their positions can be swapped without changing either buffer.
+The historical window can move older/newer through commits that touched that
+file.
+
+The plugin uses |diff-mode| and `git log --follow`, so unsaved current changes
+and file renames are handled naturally.
+
+==============================================================================
+COMMANDS                                        *git-file-history-commands*
+
+:GitFileHistory             Open history for the current file.
+:GitFileHistoryOlder        Move the history pane one revision older.
+:GitFileHistoryNewer        Move the history pane one revision newer.
+:GitFileHistorySelect       Select a revision through |vim.ui.select()|.
+:GitFileHistoryRefresh      Re-read the file history from Git.
+:GitFileHistorySwap         Swap current/history between left and right.
+:GitFileHistoryClose        Close the comparison and restore the current window.
+
+==============================================================================
+DEFAULT MAPPINGS                                *git-file-history-mappings*
+
+Mappings exist only in the historical scratch buffer.
+
+[g          older revision
+]g          newer revision
+H           older revision
+L           newer revision
+s           select revision
+r           refresh
+x           swap current/history sides
+q           close
+
+==============================================================================
+HIGHLIGHTS                                    *git-file-history-highlights*
+
+GitFileHistoryTitle       default link: Title
+GitFileHistoryIndex       default link: Special
+GitFileHistoryHash        default link: Identifier
+GitFileHistoryMeta        default link: Comment
+GitFileHistoryAbsent      default link: WarningMsg
+
+No colors are hard-coded by the plugin.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
