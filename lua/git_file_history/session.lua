@@ -3,6 +3,14 @@ local git = require("git_file_history.git")
 local ui = require("git_file_history.ui")
 
 local M = {}
+
+local function valid_win(win)
+  return type(win) == "number" and vim.api.nvim_win_is_valid(win)
+end
+
+local function valid_buf(buf)
+  return type(buf) == "number" and vim.api.nvim_buf_is_valid(buf)
+end
 local sessions = {}
 
 local SAVED_WINDOW_OPTIONS = {
@@ -42,7 +50,7 @@ local function save_window_options(win)
 end
 
 local function restore_window_options(win, saved)
-  if not saved or not vim.api.nvim_win_is_valid(win) then
+  if not saved or not valid_win(win) then
     return
   end
 
@@ -70,14 +78,14 @@ local function keep_expanded(session)
   end
 
   for _, win in ipairs({ session.current_win, session.history_win }) do
-    if vim.api.nvim_win_is_valid(win) then
+    if valid_win(win) then
       vim.wo[win].foldenable = false
     end
   end
 end
 
 local function buffer_text(buf)
-  if not vim.api.nvim_buf_is_valid(buf) then
+  if not valid_buf(buf) then
     return ""
   end
 
@@ -124,8 +132,8 @@ local function diff_index_options()
 end
 
 local function compute_hunks(session)
-  if not vim.api.nvim_buf_is_valid(session.history_buf)
-    or not vim.api.nvim_buf_is_valid(session.current_buf) then
+  if not valid_buf(session.history_buf)
+    or not valid_buf(session.current_buf) then
     return {}
   end
 
@@ -168,7 +176,7 @@ local function refresh_action_column(session)
 end
 
 local function update_diff(session)
-  if not vim.api.nvim_win_is_valid(session.current_win) then
+  if not valid_win(session.current_win) then
     return
   end
 
@@ -334,7 +342,7 @@ local function load_index(session, index)
     return false
   end
 
-  if not vim.api.nvim_buf_is_valid(session.history_buf) then
+  if not valid_buf(session.history_buf) then
     return false
   end
 
@@ -346,15 +354,15 @@ local function load_index(session, index)
   vim.b[session.history_buf].git_file_history_path = entry.path
   vim.b[session.history_buf].git_file_history_index = index
 
-  if vim.api.nvim_win_is_valid(session.history_win) then
+  if valid_win(session.history_win) then
     ui.set_winbar(session.history_win, entry, index, #session.entries, absent, config.options.winbar)
   end
 
   update_diff(session)
 
-  if vim.api.nvim_win_is_valid(session.history_win) then
+  if valid_win(session.history_win) then
     local current_cursor = { 1, 0 }
-    if vim.api.nvim_win_is_valid(session.current_win) then
+    if valid_win(session.current_win) then
       current_cursor = vim.api.nvim_win_get_cursor(session.current_win)
     end
 
@@ -419,7 +427,7 @@ end
 function M.open()
   local existing = current_session()
   if existing then
-    if vim.api.nvim_win_is_valid(existing.history_win) then
+    if valid_win(existing.history_win) then
       vim.api.nvim_set_current_win(existing.history_win)
       return
     end
@@ -536,11 +544,11 @@ function M.close(tab, from_autocmd)
 
   restore_window_options(session.current_win, session.current_options)
 
-  if not from_autocmd and vim.api.nvim_win_is_valid(session.history_win) then
+  if not from_autocmd and valid_win(session.history_win) then
     pcall(vim.api.nvim_win_close, session.history_win, true)
   end
 
-  if vim.api.nvim_win_is_valid(session.current_win) then
+  if valid_win(session.current_win) then
     pcall(vim.api.nvim_set_current_win, session.current_win)
   end
 end
@@ -639,10 +647,10 @@ function M.refresh()
 end
 
 local function apply_history_range(session, start_line, end_line)
-  if not vim.api.nvim_win_is_valid(session.current_win)
-    or not vim.api.nvim_win_is_valid(session.history_win)
-    or not vim.api.nvim_buf_is_valid(session.current_buf)
-    or not vim.api.nvim_buf_is_valid(session.history_buf) then
+  if not valid_win(session.current_win)
+    or not valid_win(session.history_win)
+    or not valid_buf(session.current_buf)
+    or not valid_buf(session.history_buf) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return false
   end
@@ -724,7 +732,7 @@ local function action_lines(session)
 end
 
 local function move_action_cursor(session, direction)
-  if not vim.api.nvim_win_is_valid(session.action_win) then
+  if not valid_win(session.action_win) then
     return
   end
 
@@ -765,7 +773,7 @@ function M.apply_action()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.action_win) then
+  if not valid_win(session.action_win) then
     notify("Hunk action column is not available", vim.log.levels.WARN)
     return
   end
@@ -798,7 +806,7 @@ end
 
 function M.focus_actions()
   local session = current_session()
-  if not session or not vim.api.nvim_win_is_valid(session.action_win) then
+  if not session or not valid_win(session.action_win) then
     notify("Hunk action column is not available", vim.log.levels.WARN)
     return
   end
@@ -816,7 +824,7 @@ function M.focus_left()
     return
   end
   local win = session.history_side == "left" and session.history_win or session.current_win
-  if vim.api.nvim_win_is_valid(win) then
+  if valid_win(win) then
     vim.api.nvim_set_current_win(win)
   end
 end
@@ -827,7 +835,7 @@ function M.focus_right()
     return
   end
   local win = session.history_side == "right" and session.history_win or session.current_win
-  if vim.api.nvim_win_is_valid(win) then
+  if valid_win(win) then
     vim.api.nvim_set_current_win(win)
   end
 end
@@ -839,7 +847,7 @@ function M.undo()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.current_win) then
+  if not valid_win(session.current_win) then
     return
   end
 
@@ -913,9 +921,9 @@ function M.apply_file()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.current_win)
-    or not vim.api.nvim_win_is_valid(session.history_win)
-    or not vim.api.nvim_buf_is_valid(session.current_buf) then
+  if not valid_win(session.current_win)
+    or not valid_win(session.history_win)
+    or not valid_buf(session.current_buf) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return
   end
@@ -947,8 +955,8 @@ function M.swap()
     return
   end
 
-  if not vim.api.nvim_win_is_valid(session.current_win)
-    or not vim.api.nvim_win_is_valid(session.history_win) then
+  if not valid_win(session.current_win)
+    or not valid_win(session.history_win) then
     notify("File-history windows are no longer valid", vim.log.levels.WARN)
     return
   end

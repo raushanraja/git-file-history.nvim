@@ -2,12 +2,20 @@ local M = {}
 
 local action_ns = vim.api.nvim_create_namespace("git_file_history_action_column")
 
+local function valid_win(win)
+  return type(win) == "number" and vim.api.nvim_win_is_valid(win)
+end
+
+local function valid_buf(buf)
+  return type(buf) == "number" and vim.api.nvim_buf_is_valid(buf)
+end
+
 local function escape_statusline(text)
   return tostring(text or ""):gsub("%%", "%%%%")
 end
 
 local function win_topline(win)
-  if not vim.api.nvim_win_is_valid(win) then
+  if not valid_win(win) then
     return 1
   end
 
@@ -28,7 +36,7 @@ local function content_top_screen_row(win)
 end
 
 local function screen_row_for_line(win, line)
-  if not vim.api.nvim_win_is_valid(win) or not line or line < 1 then
+  if not valid_win(win) or not line or line < 1 then
     return nil
   end
 
@@ -167,8 +175,8 @@ function M.apply_history_window_options(win)
 end
 
 local function action_geometry(session, width)
-  if not vim.api.nvim_win_is_valid(session.current_win)
-    or not vim.api.nvim_win_is_valid(session.history_win) then
+  if not valid_win(session.current_win)
+    or not valid_win(session.history_win) then
     return nil
   end
 
@@ -220,7 +228,7 @@ function M.ensure_action_window(session, opts)
     return nil
   end
 
-  if not vim.api.nvim_buf_is_valid(session.action_buf) then
+  if not valid_buf(session.action_buf) then
     session.action_buf = M.action_buffer()
   end
 
@@ -236,7 +244,7 @@ function M.ensure_action_window(session, opts)
     noautocmd = true,
   }
 
-  if vim.api.nvim_win_is_valid(session.action_win) then
+  if valid_win(session.action_win) then
     pcall(vim.api.nvim_win_set_config, session.action_win, cfg)
   else
     session.action_win = vim.api.nvim_open_win(session.action_buf, false, cfg)
@@ -248,7 +256,7 @@ function M.ensure_action_window(session, opts)
 end
 
 function M.close_action_window(session)
-  if session and vim.api.nvim_win_is_valid(session.action_win) then
+  if session and valid_win(session.action_win) then
     pcall(vim.api.nvim_win_close, session.action_win, true)
   end
   if session then
